@@ -144,12 +144,23 @@ class Preprocess4Pretrain(Pipeline):
         masked_tokens, masked_pos, tokens = _sample_mask(tokens, self.mask_alpha,
                                             self.mask_beta, self.max_gram,
                                             goal_num_predict=n_pred)
-
+        # masked_token -> 마스크 된 token의 원래 값
+        # masked_pos -> 마스크 된 token의 index 값
+        # tokens > 마스크 처리된 전체 tokens([CLS] + masked_sentence_A + [SEP] + masked_setence_B + [SEP])
         masked_weights = [1]*len(masked_tokens)
 
         # Token Indexing
         input_ids = self.indexer(tokens)
         masked_ids = self.indexer(masked_tokens)
+        
+        """ Indexer
+        def convert_tokens_to_ids(vocab, tokens):
+        #    Converts a sequence of tokens into ids using the vocab.
+            ids = []
+            for token in tokens:
+                ids.append(vocab[token])
+            return ids
+        """
 
         # Zero Padding
         n_pad = self.max_len - len(input_ids)
@@ -166,6 +177,14 @@ class Preprocess4Pretrain(Pipeline):
             masked_weights.extend([0] * (self.max_pred - len(masked_weights)))
 
         return (input_ids, segment_ids, input_mask, masked_ids, masked_pos, masked_weights, is_next)
+        # input_ids : 마스크 처리된 전체 seq의 id
+        # segment_ids : 문장 구분을 위한 [0, 1]의 segment 정보의 id
+        # input_mask : 실제로 사용되는 id들 (zero-padding된 경우 제외)
+        # masked_ids : 마스킹된 token들의 원래 값의 id(zero-padding됨)
+        # maksed_pos : 마스킹된 token들의 위치 id
+        # masked_weights : 마스크된 token의 갯수만큼 1로 채워진 배열
+        # is_next : instance 생성에서 만든 값 boolean 값.
+        # 모든 값들이 길이가 동일함(concat가능)
 
 class BertModel4Pretrain(nn.Module):
     "Bert Model for Pretrain : Masked LM and next sentence classification"
@@ -195,6 +214,10 @@ class BertModel4Pretrain(nn.Module):
         self.decoder_bias = nn.Parameter(torch.zeros(n_vocab))
 
     def forward(self, input_ids, segment_ids, input_mask, masked_pos):
+        # input_ids : 마스크 처리된 전체 seq의 id
+        # segment_ids : 문장 구분을 위한 [0, 1]의 segment 정보의 id
+        # input_mask : 실제로 사용되는 id들 (zero-padding된 경우 제외)
+        # maksed_pos : 마스킹된 token들의 위치 id
         h = self.transformer(input_ids, segment_ids, input_mask)
         pooled_h = self.activ1(self.fc(h[:, 0]))
         masked_pos = masked_pos[:, :, None].expand(-1, -1, h.size(-1))
@@ -263,8 +286,32 @@ if __name__ == '__main__':
     parser.add_argument('--data_file', type=str, default='./data/wiki.train.tokens')
     parser.add_argument('--vocab', type=str, default='./data/vocab.txt')
     parser.add_argument('--train_cfg', type=str, default='./config/pretrain.json')
+    """
+    {
+        "seed": 3431,
+        "batch_size": 8,
+        "lr": 1e-4,
+        "n_epochs": 25,
+        "warmup": 0.1,
+        "save_steps": 10000,
+        "total_steps": 1000000
+    }
+    """
     parser.add_argument('--model_cfg', type=str, default='./config/albert_unittest.json')
+    """
+    {
+        "embedding" : 24,
 
+        "hidden": 64,
+        "hidden_ff": 256,
+
+        "n_layers": 6,
+        "n_heads": 1,
+        "max_len": 512,
+        "n_segments": 2,
+        "vocab_size": 30522
+    }
+    """
     # official google-reacher/bert is use 20, but 20/512(=seq_len)*100 make only 3% Mask
     # So, using 76(=0.15*512) as `max_pred`
     parser.add_argument('--max_pred', type=int, default=76, help='max tokens of prediction')
