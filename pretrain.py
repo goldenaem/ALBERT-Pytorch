@@ -210,22 +210,26 @@ class BertModel4Pretrain(nn.Module):
         n_vocab, n_embedding = embed_weight1.size()
         self.decoder2 = nn.Linear(n_embedding, n_vocab, bias=False)
         self.decoder2.weight = embed_weight1
+        
+        # self.tok_embed1 = nn.Embedding(cfg.vocab_size, cfg.embedding)
+        # self.tok_embed2 = nn.Linear(cfg.embedding, cfg.hidden)
 
-        self.decoder_bias = nn.Parameter(torch.zeros(n_vocab))
+        self.decoder_bias = nn.Parameter(torch.zeros(n_vocab)) # 역할이 뭐지..?
 
     def forward(self, input_ids, segment_ids, input_mask, masked_pos):
         # input_ids : 마스크 처리된 전체 seq의 id
         # segment_ids : 문장 구분을 위한 [0, 1]의 segment 정보의 id
         # input_mask : 실제로 사용되는 id들 (zero-padding된 경우 제외)
         # maksed_pos : 마스킹된 token들의 위치 id
-        h = self.transformer(input_ids, segment_ids, input_mask)
-        pooled_h = self.activ1(self.fc(h[:, 0]))
+        h = self.transformer(input_ids, segment_ids, input_mask) # 이미 layer수만큼 (multi-head attention + FFN)을 지나온 vector [batch_size, seq_len, hidden_dim]
+        pooled_h = self.activ1(self.fc(h[:, 0])) # h[:,0] : [batch_size, 1(0번째, CLS, hidden_dim)] > [B, 1, H]
         masked_pos = masked_pos[:, :, None].expand(-1, -1, h.size(-1))
         h_masked = torch.gather(h, 1, masked_pos)
-        h_masked = self.norm(self.activ2(self.linear(h_masked)))
+        h_masked = self.norm(self.activ2(self.linear(h_masked))) # 최종적으로  [batch_size, # of masked token(mS), hidden_dim]
 
         logits_lm = self.decoder2(self.decoder1(h_masked)) + self.decoder_bias
-        logits_clsf = self.classifier(pooled_h)
+        # [B, mS, H] > [B, mS, E] > [B, mS, V]
+        logits_clsf = self.classifier(pooled_h) # CLS로 SOP를 의미. [B, 1, 2]
 
         return logits_lm, logits_clsf
 
@@ -264,8 +268,16 @@ def main(args):
 
     def get_loss(model, batch, global_step): # make sure loss is tensor
         input_ids, segment_ids, input_mask, masked_ids, masked_pos, masked_weights, is_next = batch
-
+        # input_ids : 마스크 처리된 전체 seq의 id
+        # segment_ids : 문장 구분을 위한 [0, 1]의 segment 정보의 id
+        # input_mask : 실제로 사용되는 id들 (zero-padding된 경우 제외)
+        # masked_ids : 마스킹된 token들의 원래 값의 id(zero-padding됨)
+        # maksed_pos : 마스킹된 token들의 위치 id
+        # masked_weights : 마스크된 token의 갯수만큼 1로 채워진 배열
+        # is_next : instance 생성에서 만든 값 boolean 값.
         logits_lm, logits_clsf = model(input_ids, segment_ids, input_mask, masked_pos)
+        # logits_lm : [B, mS, V]
+        # logits_clsf : [B, 1, 2]        
         loss_lm = criterion1(logits_lm.transpose(1, 2), masked_ids) # for masked LM
         loss_lm = (loss_lm*masked_weights.float()).mean()
         loss_sop = criterion2(logits_clsf, is_next) # for sentence classification
