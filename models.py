@@ -131,7 +131,6 @@ class MultiHeadedSelfAttention(nn.Module):
         h = merge_last(h, 2)
         self.scores = scores
         return h
-    
     # h=6라 하고, n_head = 3이면, 6차원짜리 벡터가 seq 갯수만큼 존재. 이 때 Wq, Wk, Wv를 곱해서 q,k,v 가 각각 기존 x와 같은 size를 가지도록 함(B, s, 6)
     # 이걸 이제 (B, s, 3, 2)로 쪼개고, merge 전까지 계산된 h는 (B, s, 3, 2)짜리 tensor인데  이를 (B, s, 6)짜리로 만듬. head마다의 결과를 concat함.
 
